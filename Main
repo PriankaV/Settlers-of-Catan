@@ -1,1 +1,178 @@
-//Settlers of Catan App
+import random
+
+class Tile:
+    def __init__(self, resource, number):
+        self.resource = resource
+        self.number = number
+        self.robber = False
+
+class Board:
+    def __init__(self, num_players):
+        self.tiles = []
+        self.settlements = {}
+        self.roads = {}
+        self.num_players = num_players
+        self.setup_board()
+
+    def setup_board(self):
+        resources = ["wheat", "sheep", "rocks", "wood", "bricks"]
+        numbers = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
+
+        if self.num_players == 6:
+            resources += ["wheat", "sheep", "rocks", "wood", "bricks"]
+            numbers += [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12]
+
+        resources.append("desert")
+        random.shuffle(resources)
+
+        for resource in resources:
+            if resource == "desert":
+                self.tiles.append(Tile(resource, None))
+            else:
+                self.tiles.append(Tile(resource, numbers.pop(0)))
+
+    def display_board(self):
+        for tile in self.tiles:
+            print(f"{tile.resource} ({tile.number})", end=", " if tile.number else "\n")
+
+    def place_settlement(self, player, location):
+        if self.is_valid_settlement(location):
+            self.settlements[location] = player.name
+            return True
+        return False
+
+    def place_road(self, player, location):
+        if self.is_valid_road(location):
+            self.roads[location] = player.name
+            return True
+        return False
+
+    def is_valid_settlement(self, location):
+        if location in self.settlements:
+            return False
+        for neighbor in self.get_neighbors(location):
+            if neighbor in self.settlements:
+                return False
+        return True
+
+    def is_valid_road(self, location):
+        return location not in self.roads
+
+    def get_neighbors(self, location):
+        neighbors = [
+            (location[0] - 1, location[1]), (location[0] + 1, location[1]),
+            (location[0], location[1] - 1), (location[0], location[1] + 1),
+            (location[0] - 1, location[1] + 1), (location[0] + 1, location[1] - 1)
+        ]
+        return neighbors
+
+class Player:
+    def __init__(self, name):
+        self.name = name
+        self.resources = {"wheat": 0, "sheep": 0, "rocks": 0, "wood": 0, "bricks": 0}
+        self.victory_points = 0
+
+    def receive_resources(self, resource, amount):
+        if resource in self.resources:
+            self.resources[resource] += amount
+
+    def build_settlement(self, board, location):
+        if self.can_build_settlement():
+            if board.place_settlement(self, location):
+                self.victory_points += 1
+
+    def build_road(self, board, location):
+        if self.can_build_road():
+            if board.place_road(self, location):
+                pass
+
+    def can_build_settlement(self):
+        return all(self.resources[res] >= 1 for res in ["wheat", "sheep", "wood", "bricks"])
+
+    def can_build_road(self):
+        return all(self.resources[res] >= 1 for res in ["wood", "bricks"])
+
+    def __str__(self):
+        return f"{self.name} - Resources: {self.resources}, Victory Points: {self.victory_points}"
+
+class Market:
+    def trade_with_bank(self, player, give_resource, receive_resource, rate=4):
+        if player.resources[give_resource] >= rate:
+            player.resources[give_resource] -= rate
+            player.resources[receive_resource] += 1
+
+    def trade_with_player(self, player1, player2, give_resource1, receive_resource1, give_resource2, receive_resource2):
+        if player1.resources[give_resource1] >= receive_resource1 and player2.resources[give_resource2] >= receive_resource2:
+            player1.resources[give_resource1] -= receive_resource1
+            player1.resources[give_resource2] += receive_resource2
+            player2.resources[give_resource2] -= receive_resource2
+            player2.resources[give_resource1] += receive_resource1
+
+class Port:
+    def __init__(self, trade_ratio, resource=None):
+        self.trade_ratio = trade_ratio
+        self.resource = resource
+
+    def trade_with_port(self, player, give_resource, receive_resource):
+        if give_resource == self.resource or self.resource is None:
+            if player.resources[give_resource] >= self.trade_ratio:
+                player.resources[give_resource] -= self.trade_ratio
+                player.resources[receive_resource] += 1
+
+class GameWithMarketPort:
+    def __init__(self, num_players):
+        self.board = Board(num_players)
+        self.players = [Player(name=f"Player {i+1}") for i in range(num_players)]
+        self.current_turn = 0
+        self.market = Market()
+        self.ports = [Port(2, "wheat"), Port(3), Port(3), Port(3), Port(2, "sheep"), Port(3), Port(3), Port(2, "rocks"), Port(2, "wood")]
+
+    def roll_dice(self):
+        return random.randint(1, 6), random.randint(1, 6)
+
+    def distribute_resources(self, roll):
+        for tile in self.board.tiles:
+            if tile.number == roll and not tile.robber:
+                for player in self.players:
+                    player.receive_resources(tile.resource, 1)
+
+    def move_robber(self, tile_index):
+        for tile in self.board.tiles:
+            tile.robber = False
+        self.board.tiles[tile_index].robber = True
+
+    def rob_player(self, victim_index, robber_index):
+        victim = self.players[victim_index]
+        robber = self.players[robber_index]
+        victim_resources = [res for res in victim.resources if victim.resources[res] > 0]
+        if victim_resources:
+            stolen_resource = random.choice(victim_resources)
+            victim.resources[stolen_resource] -= 1
+            robber.resources[stolen_resource] += 1
+
+    def next_turn(self):
+        self.current_turn = (self.current_turn + 1) % len(self.players)
+
+    def display_game_state(self):
+        self.board.display_board()
+        for player in self.players:
+            print(player)
+        print("Ports:")
+        for i, port in enumerate(self.ports):
+            res = port.resource if port.resource else "any"
+            print(f"Port {i}: Trade ratio {port.trade_ratio}:1 for {res}")
+
+# Testing the complete game
+game = GameWithMarketPort(num_players=4)
+game.display_game_state()
+
+# Example of building a settlement and a road
+print("\nPlayer 1 builds a settlement at (0, 0)...")
+game.players[0].resources = {"wheat": 1, "sheep": 1, "rocks": 0, "wood": 1, "bricks": 1}
+game.players[0].build_settlement(game.board, (0, 0))
+game.display_game_state()
+
+print("\nPlayer 1 builds a road at (0, 0) to (0, 1)...")
+game.players[0].resources = {"wheat": 0, "sheep": 0, "rocks": 0, "wood": 1, "bricks": 1}
+game.players[0].build_road(game.board, ((0, 0), (0, 1)))
+game.display_game_state()
